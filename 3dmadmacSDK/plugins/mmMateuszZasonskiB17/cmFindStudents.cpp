@@ -12,7 +12,7 @@ mmClouds::mmCloudOfPointsCalculationMethodI::sCalculationMethodParams cmEmptyMet
 };
 
 mmClouds::cmFindStudents::cmFindStudents(mmInterfacesStorage::mmGlobalInterfacesStorage* p_psGlobalInterfaces) :
-mmCalcMethod(p_psGlobalInterfaces, cmEmptyMethodParams)
+	mmCalcMethod(p_psGlobalInterfaces, cmEmptyMethodParams)
 {
 	FUNC_SCOPE;
 	m_bAlwaysConfirm = true;
@@ -29,23 +29,27 @@ void mmClouds::cmFindStudents::Calculate()
 
 	//=============================== sortowanie chmur ======================================
 	sortCloudOfPoints();
-	
-	
+
+
 	loadCloudOfPoints();
 
 	//============================ usuwanie plaszczyzn =======================================
 	clearCloudOfPointsFromLargeSurfaces();
 
 	//============================= segmentacja ==============================================
-	//segmentateCloudOfPoints();	//jako tako dziala
+	segmentateCloudOfPoints(); //jako tako dziala
 
-	
+
 	//============================ rozpoznawanie twarzy po HSV ===============================
 	//detectFacesByHSV();
 
 	//============================== zapis wynikow ===========================================
 	saveCloudOfPoints();
 	//saveResultsToFile();
+
+
+	//============================ czyszczenie pamieci ===============================
+	delete []m_rGroupNumber;
 
 }
 
@@ -55,13 +59,12 @@ void mmClouds::cmFindStudents::Calculate()
 ////////////////////////////////////////////////////////////////////////////////
 void mmClouds::cmFindStudents::sortCloudOfPoints()
 {
-	m_psCloudStructure->LockAllDataForWrite();	//lock
+	m_psCloudStructure->LockAllDataForWrite(); //lock
 
 	m_psCloudStructure->SortXYZ();
 
-	m_psCloudStructure->UnlockAllDataFromWrite();	//unlock
+	m_psCloudStructure->UnlockAllDataFromWrite(); //unlock
 }
-
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -70,8 +73,8 @@ void mmClouds::cmFindStudents::sortCloudOfPoints()
 ////////////////////////////////////////////////////////////////////////////////
 void mmClouds::cmFindStudents::loadCloudOfPoints()
 {
-	m_psCloudStructure->LockAllDataForRead();	//lock
-	
+	m_psCloudStructure->LockAllDataForRead(); //lock
+
 	m_iID = m_psCloudStructure->GetDirectionalCloudOfPointsID(m_sCloudName);
 	m_iPointsCount = m_psCloudStructure->GetPointsCount(m_iID);
 	m_iPointStart = 0;
@@ -83,7 +86,7 @@ void mmClouds::cmFindStudents::loadCloudOfPoints()
 
 	m_psCloudStructure->GetPoints(m_iID, m_iPointStart, m_iPointsCount, NULL, m_rGlobalXYZ, m_iPointsState, m_rNXNYNZ, NULL, m_ucRGBA, NULL);
 
-	m_psCloudStructure->UnlockAllDataFromRead();	//unlock
+	m_psCloudStructure->UnlockAllDataFromRead(); //unlock
 }
 
 
@@ -92,89 +95,51 @@ void mmClouds::cmFindStudents::loadCloudOfPoints()
 ////////////////////////////////////////////////////////////////////////////////
 void mmClouds::cmFindStudents::clearCloudOfPointsFromLargeSurfaces()
 {
-	m_psCloudStructure->LockAllDataForWrite();	//lock
-	/*
-	data layer
-	*/
-	mmInt v_iLayer = m_psCloudStructure->AddNewDataLayer(L"PlaneDetected", -1.0);
-	mmReal *planes = new mmReal[m_iPointsCount];
-	/*
-	error variables
-	*/
-	mmReal *error = new mmReal(0.0);
-	mmReal *maxError = new mmReal(0.0);
-	mmReal *minError = new mmReal(1000.0);
-	/*
-	neighbourshoods*/
-	std::vector<mmClouds::mmCloudsOfPointsStructureI::sPointID> v_vNeighbourPoints;		//wektor zawierajacy ID punktow z sasiedztwa
-	mmInt v_iPointsInNeighbourhood = 0;		//ilosc punktow w sasiedztwie
+	m_psCloudStructure->LockAllDataForRead(); //lock
+
+	m_iPlanesDetecion = new mmInt[m_iPointsCount];
+
+	mmReal* error = new mmReal(0.0);
+
+	std::vector<mmClouds::mmCloudsOfPointsStructureI::sPointID> v_vNeighbourPoints; //vector containing points' ID from neighbourhood
+	mmInt v_iPointsInNeighbourhood = 0; //number of points in neighbourhood
 
 	for (mmInt i = 0; i < m_iPointsCount; i++)
 	{
 		do
 		{
 			m_psCloudStructure->GetPointsInRadius(m_rGlobalXYZ[3 * i], m_rGlobalXYZ[3 * i + 1], m_rGlobalXYZ[3 * i + 2], m_rPlaneDeletionRadius, &v_vNeighbourPoints, &v_iPointsInNeighbourhood, m_iID);
-			
+
 			if (5 < v_iPointsInNeighbourhood && v_iPointsInNeighbourhood < 25)
 			{
 				std::vector<mmMath::sPoint3D> v_prGlobalXYZPointsInRadius2;
-				for (mmInt j = 0; j < v_iPointsInNeighbourhood; j++) {
+				for (mmInt j = 0; j < v_iPointsInNeighbourhood; j++)
+				{
 					mmMath::sPoint3D tempPoint3D;
 					tempPoint3D.rX = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID)];
 					tempPoint3D.rY = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID) + 1];
 					tempPoint3D.rZ = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID) + 2];
 					v_prGlobalXYZPointsInRadius2.push_back(tempPoint3D);
 				}
-				/*
-				wyznaczenie plaszczyzny i przypisanie jej wektora normalnego
-				*/
-				mmMath::sPlane3D sp_AproxPlane;
-				sp_AproxPlane = mmMath::CalcBestPlane3D(v_prGlobalXYZPointsInRadius2, error);
 
-				if (*error < *minError)
-					*minError = *error;
-
-				if (*error > *maxError)
-					*maxError = *error;
-
-				//*acceptanceLevel = 0.001 + sqrt(0.001*v_iPointsInNeighbourhood);
-
-				if (*error <= m_rPlaneDeletionMaxError)
-				{
-					planes[i] = 1.0;
-					if (!(m_iPointsState[i] & mmClouds::mmCloudsOfPointsStructureI::mmCoP_selected))
-					{
-						m_iPointsState[i] += mmClouds::mmCloudsOfPointsStructureI::mmCoP_selected;
-					};
-				}
+				mmMath::sPlane3D sp_AproxPlane = mmMath::CalcBestPlane3D(v_prGlobalXYZPointsInRadius2, error);
+				
+				if (*error <= m_rPlaneDeletionMaxError)	//if plane is fitted well enough mark point as a part of plane
+					m_iPlanesDetecion[i] = 1;
 				else
-				{
-					planes[i] = 0.0;
-				}
+					m_iPlanesDetecion[i] = 0;
 			}
-			else if (v_iPointsInNeighbourhood < 5)
-			{
-				m_rPlaneDeletionRadius = 1.25*m_rPlaneDeletionRadius;
-			}
-			else if (v_iPointsInNeighbourhood > 25)
-			{
-				m_rPlaneDeletionRadius = 0.75*m_rPlaneDeletionRadius;
-			}
+			else if (v_iPointsInNeighbourhood < 5) //optimize radius for reliable plane calculation
+				m_rPlaneDeletionRadius = 1.25 * m_rPlaneDeletionRadius;
+			else if (v_iPointsInNeighbourhood > 25) //optimize radius for reliable plane calculation
+				m_rPlaneDeletionRadius = 0.75 * m_rPlaneDeletionRadius;
+		}
+		while (v_iPointsInNeighbourhood < 5 || v_iPointsInNeighbourhood > 25);	
 
-		} while (v_iPointsInNeighbourhood < 5 || v_iPointsInNeighbourhood > 25);
-		
-		
 
-		m_rProgress = (100.0*i / m_iPointsCount);
+		m_rProgress = (100.0 * i / (5*m_iPointsCount));	//it's just a part of algorithm
 	}
-
-	m_psCloudStructure->DeinitializeForMultithreadedCalculation();
-	m_psCloudStructure->SetPointsAdditionalDataLayerCoord(m_iID, m_iPointStart, m_iPointsCount, v_iLayer, planes);
-	
-	m_psCloudStructure->UnlockAllDataFromWrite();	//unlock
-
-	delete [] planes;
-
+	m_psCloudStructure->UnlockAllDataFromRead(); //unlock
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -183,16 +148,22 @@ void mmClouds::cmFindStudents::clearCloudOfPointsFromLargeSurfaces()
 void mmClouds::cmFindStudents::segmentateCloudOfPoints()
 {
 	m_psCloudStructure->LockAllDataForWrite();
-	{
-		mmInt v_iLayer = m_psCloudStructure->AddNewDataLayer(L"Segment_number", -1.0);
+	m_psCloudStructure->DeinitializeForMultithreadedCalculation();
+		mmInt v_iLayer = m_psCloudStructure->AddNewDataLayer(L"SegmentNumber", -1.0);
 		m_rGroupNumber = new mmReal[m_iPointsCount];
-		mmInt * v_iCalculationState = new mmInt[m_iPointsCount];
+		m_iGroupMembersCount = new mmInt[m_iPointsCount + 1];
+		mmInt* v_iCalculationState = new mmInt[m_iPointsCount];
 
-		std::vector<mmClouds::mmCloudsOfPointsStructureI::sPointID> v_vNeighbourPoints;		//wektor zawierajacy ID punktow z sasiedztwa
-		mmInt v_iPointsInNeighbourhood = 0;		//ilosc punktow w sasiedztwie
+		std::vector<mmClouds::mmCloudsOfPointsStructureI::sPointID> v_vNeighbourPoints; //wektor zawierajacy ID punktow z sasiedztwa
+		mmInt v_iPointsInNeighbourhood = 0; //ilosc punktow w sasiedztwie
 
 		for (mmInt i = 0; i < m_iPointsCount; i++)
 		{
+			//if (m_iPlanesDetecion[i] == 1) //wyrzuca wyszukane plaszczyzny z algorytmu
+			//{
+			//	m_rGroupNumber[i] = -1;
+			//	v_iCalculationState[i] = 1;
+			//}
 			m_rGroupNumber[i] = 0;
 			v_iCalculationState[i] = 0;
 		}
@@ -205,6 +176,7 @@ void mmClouds::cmFindStudents::segmentateCloudOfPoints()
 			if (m_rGroupNumber[i] == 0 && v_iCalculationState[i] == 0)
 			{
 				v_igroupNumber++;
+				m_iGroupMembersCount[v_igroupNumber] = 1;
 				m_rGroupNumber[i] = v_igroupNumber;
 				v_iCalculationState[i] = 1;
 
@@ -215,10 +187,11 @@ void mmClouds::cmFindStudents::segmentateCloudOfPoints()
 					if (m_rGroupNumber[v_vNeighbourPoints[j].iPointID] == 0)
 					{
 						m_rGroupNumber[v_vNeighbourPoints[j].iPointID] = v_igroupNumber;
+						m_iGroupMembersCount[v_igroupNumber]++;
 						uncalculatedPointFromGroupFound = true;
 					}
 				}
-				
+
 				while (uncalculatedPointFromGroupFound)
 				{
 					for (mmInt j = 0; j < m_iPointsCount; j++)
@@ -233,6 +206,7 @@ void mmClouds::cmFindStudents::segmentateCloudOfPoints()
 								if (m_rGroupNumber[v_vNeighbourPoints[k].iPointID] == 0)
 								{
 									m_rGroupNumber[v_vNeighbourPoints[k].iPointID] = v_igroupNumber;
+									m_iGroupMembersCount[v_igroupNumber]++;
 									uncalculatedPointFromGroupFound = true;
 								}
 							}
@@ -241,13 +215,25 @@ void mmClouds::cmFindStudents::segmentateCloudOfPoints()
 					}
 				}
 			}
-			m_rProgress = (100.0*i / m_iPointsCount);
+
+			m_rProgress = (100.0*(m_iPointsCount+4*i) / (5 * m_iPointsCount));
 		}
+
+		//for (mmInt i = 0; i < m_iPointsCount; i++)	//wyczyszczenie z zbyt malych grup -> index grupy -2
+		//{
+		//	if (m_iGroupMembersCount[static_cast<int>(m_rGroupNumber[i])]<5)
+		//	{
+		//		m_rGroupNumber[i] = -2;
+		//	}
+		//}
+
+
 		m_psCloudStructure->DeinitializeForMultithreadedCalculation();
 		m_psCloudStructure->SetPointsAdditionalDataLayerCoord(m_iID, m_iPointStart, m_iPointsCount, v_iLayer, m_rGroupNumber);
-		delete []m_rGroupNumber;
+
+
+
 		delete []v_iCalculationState;
-	}
 
 	m_psCloudStructure->UnlockAllDataFromWrite();
 }
@@ -260,7 +246,6 @@ void mmClouds::cmFindStudents::detectFacesByHSV()
 	m_psCloudStructure->LockAllDataForRead();
 
 	m_psCloudStructure->UnlockAllDataFromRead();
-
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -279,7 +264,7 @@ void mmClouds::cmFindStudents::saveCloudOfPoints()
 ////////////////////////////////////////////////////////////////////////////////
 void mmClouds::cmFindStudents::saveResultsToFile()
 {
-	m_psCloudStructure->LockAllDataForRead();	//lock
+	m_psCloudStructure->LockAllDataForRead(); //lock
 
-	m_psCloudStructure->UnlockAllDataFromRead();	//unlock
+	m_psCloudStructure->UnlockAllDataFromRead(); //unlock
 }
