@@ -35,16 +35,18 @@ void mmClouds::cmFindStudents::Calculate()
 
 	//============================ usuwanie plaszczyzn =======================================
 	clearCloudOfPointsFromLargeSurfaces(); //OK
+	clearCloudOfPointsFromSurfaceEdges();
 
 	//============================= segmentacja ==============================================
-	segmentateCloudOfPoints(); //jako tako dziala
+	segmentateCloudOfPoints();	//OK
 
+	//============================ rozpoznawanie  ===============================
+	//detectFacesByHSV();
 
-	//============================ rozpoznawanie twarzy po HSV ===============================
-	detectFacesByHSV();
+	detectHumansByGeometry();
 
 	//============================== zapis wynikow ===========================================
-	saveCloudOfPoints();
+	saveCloudOfPoints();	//OK
 	//saveResultsToFile();
 
 
@@ -145,8 +147,143 @@ void mmClouds::cmFindStudents::clearCloudOfPointsFromLargeSurfaces()
 	m_psCloudStructure->UnlockAllDataFromRead(); //unlock
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
-/// TODO
+/// clear cloud of points from point on surfaces egde with similar color
+////////////////////////////////////////////////////////////////////////////////
+//void mmClouds::cmFindStudents::clearCloudOfPointsFromSurfaceEdges()
+//{
+//	m_psCloudStructure->LockAllDataForRead();
+//	std::vector<mmClouds::mmCloudsOfPointsStructureI::sPointID> v_vNeighbourPoints; //wektor zawierajacy ID punktow z sasiedztwa
+//	mmInt v_iPointsInNeighbourhood = 0; //ilosc punktow w sasiedztwie
+//	double v_R, v_G, v_B;
+//	double v_RtoCheck, v_GtoCheck, v_BtoCheck;
+//
+//	mmReal *h = new mmReal();
+//	mmReal *s = new mmReal();
+//	mmReal *v = new mmReal();
+//
+//	mmReal *htoCheck = new mmReal();
+//	mmReal *stoCheck = new mmReal();
+//	mmReal *vtoCheck = new mmReal();
+//
+//	bool* v_planes = new bool[m_iPointsCount];
+//	for (mmInt i = 0; i < m_iPointsCount; i++)
+//	{
+//		v_planes[i] = false;
+//	}
+//	for (mmInt i = 0; i < m_iPointsCount; i++)
+//	{
+//		if (m_bPlanesDetecion[i] == true)
+//		{
+//			m_psCloudStructure->GetPointsInRadius(m_rGlobalXYZ[3 * i], m_rGlobalXYZ[3 * i + 1], m_rGlobalXYZ[3 * i + 2], m_rPlaneDeletionRadius/3, &v_vNeighbourPoints, &v_iPointsInNeighbourhood, m_iID);
+//			
+//		
+//			v_R = ((unsigned int) m_ucRGBA[4 * i]) / 255.0; //R value 
+//			v_G = ((unsigned int) m_ucRGBA[4 * i + 1]) / 255.0; //G value
+//			v_B = ((unsigned int) m_ucRGBA[4 * i + 2]) / 255.0; //B value
+//			RGBtoHSV(v_R, v_G, v_B, h, s, v);
+//
+//
+//			for (mmInt j = 0; j < v_iPointsInNeighbourhood; j++)
+//			{
+//				//sprawdzic kolor
+//
+//	
+//				v_RtoCheck = ((unsigned int) m_ucRGBA[4 * v_vNeighbourPoints[j].iPointID]) / 255.0; //R value 
+//				v_GtoCheck = ((unsigned int) m_ucRGBA[4 * v_vNeighbourPoints[j].iPointID + 1]) / 255.0; //G value
+//				v_BtoCheck = ((unsigned int) m_ucRGBA[4 * v_vNeighbourPoints[j].iPointID + 2]) / 255.0; //B value
+//				RGBtoHSV(v_RtoCheck, v_GtoCheck, v_BtoCheck, htoCheck, stoCheck, vtoCheck);
+//
+//				if (*htoCheck >= 0.8*(*h) && *htoCheck <= 1.2*(*h) &&
+//					*stoCheck >= 0.8*(*s) && *stoCheck <= 1.2*(*s) &&
+//					*vtoCheck >= 0.8*(*v) && *vtoCheck <= 1.2*(*v))
+//				{
+//					v_planes[v_vNeighbourPoints[j].iPointID] = true;
+//				}
+//			}
+//		}
+//	}
+//
+//	for (mmInt i = 0; i < m_iPointsCount; i++)
+//	{
+//		m_bPlanesDetecion[i] = m_bPlanesDetecion[i] || v_planes[i];
+//	}
+//	//for (mmInt i = 0; i < m_iPointsCount; i++)
+//	//{
+//	//	if (m_bPlanesDetecion[i]==true && !(m_iPointsState[i] &mmClouds::mmCloudsOfPointsStructureI::mmCoP_selected))
+//	//	m_iPointsState[i] += mmClouds::mmCloudsOfPointsStructureI::mmCoP_selected;
+//	//}
+//	m_psCloudStructure->UnlockAllDataFromRead();
+//}
+
+void mmClouds::cmFindStudents::clearCloudOfPointsFromSurfaceEdges()	//wersja z rzutowaniem na plaszczyzny
+{
+	m_psCloudStructure->LockAllDataForRead();
+	std::vector<mmClouds::mmCloudsOfPointsStructureI::sPointID> v_vNeighbourPoints; //wektor zawierajacy ID punktow z sasiedztwa
+	mmInt v_iPointsInNeighbourhood = 0; //ilosc punktow w sasiedztwie
+
+
+	bool* v_planes = new bool[m_iPointsCount];
+	for (mmInt i = 0; i < m_iPointsCount; i++)
+	{
+		v_planes[i] = false;
+	}
+
+	mmReal* error = new mmReal(0.0);
+
+	for (mmInt i = 0; i < m_iPointsCount; i++)
+	{
+		if (m_bPlanesDetecion[i] == true)
+		{
+			m_psCloudStructure->GetPointsInRadius(m_rGlobalXYZ[3 * i], m_rGlobalXYZ[3 * i + 1], m_rGlobalXYZ[3 * i + 2], m_rPlaneDeletionRadius, &v_vNeighbourPoints, &v_iPointsInNeighbourhood, m_iID);
+
+			std::vector<mmMath::sPoint3D> v_prGlobalXYZPointsInRadius2;
+			for (mmInt j = 0; j < v_iPointsInNeighbourhood; j++)
+			{
+				if (m_bPlanesDetecion[(v_vNeighbourPoints[j]).iPointID] == true)
+				{
+					mmMath::sPoint3D tempPoint3D;
+					tempPoint3D.rX = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID)];
+					tempPoint3D.rY = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID) + 1];
+					tempPoint3D.rZ = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID) + 2];
+					v_prGlobalXYZPointsInRadius2.push_back(tempPoint3D);
+				}
+			}
+			mmMath::sPlane3D sp_AproxPlane = mmMath::CalcBestPlane3D(v_prGlobalXYZPointsInRadius2, error);
+
+
+			for (mmInt j = 0; j < v_iPointsInNeighbourhood; j++)
+			{
+				if (m_bPlanesDetecion[(v_vNeighbourPoints[j]).iPointID] == false)
+				{
+					mmMath::sPoint3D tempPoint3D;
+					tempPoint3D.rX = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID)];
+					tempPoint3D.rY = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID) + 1];
+					tempPoint3D.rZ = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID) + 2];
+					mmReal distance = CalcPointToPlaneDistance3D(tempPoint3D, sp_AproxPlane, false);
+					if (distance < 2)
+						v_planes[(v_vNeighbourPoints[j]).iPointID] = true;
+				}
+			}
+		}
+	}
+
+	for (mmInt i = 0; i < m_iPointsCount; i++)
+	{
+		m_bPlanesDetecion[i] = m_bPlanesDetecion[i] || v_planes[i];
+	}
+	/*for (mmInt i = 0; i < m_iPointsCount; i++)
+	{
+		if (m_bPlanesDetecion[i]==true && !(m_iPointsState[i] &mmClouds::mmCloudsOfPointsStructureI::mmCoP_selected))
+		m_iPointsState[i] += mmClouds::mmCloudsOfPointsStructureI::mmCoP_selected;
+	}*/
+	m_psCloudStructure->UnlockAllDataFromRead();
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// cloud of points segmentation using Hausdorf distance
 ////////////////////////////////////////////////////////////////////////////////
 void mmClouds::cmFindStudents::segmentateCloudOfPoints()
 {
@@ -168,7 +305,7 @@ void mmClouds::cmFindStudents::segmentateCloudOfPoints()
 		else
 			v_iCalculationState[i] = 0;
 	}
-
+	
 	m_igroupNumber = 0;
 
 	for (mmInt i = 0; i < m_iPointsCount; i++)
@@ -210,7 +347,7 @@ void mmClouds::cmFindStudents::segmentateCloudOfPoints()
 								uncalculatedPointFromGroupFound = true;
 							}
 						}
-						v_iCalculationState[j] == 1;
+						v_iCalculationState[j] = 1;
 					}
 				}
 			}
@@ -219,14 +356,7 @@ void mmClouds::cmFindStudents::segmentateCloudOfPoints()
 		m_rProgress = (100.0 * (m_iPointsCount + 4 * i) / (5 * m_iPointsCount));
 	}
 
-	//for (mmInt i = 0; i < m_iPointsCount; i++)	//wyczyszczenie z zbyt malych grup -> index grupy -2
-	//{
-	//	if (m_iGroupMembersCount[static_cast<int>(m_rGroupNumber[i])]<5)
-	//	{
-	//		m_rGroupNumber[i] = -2;
-	//	}
-	//}
-
+	mergeSegments();
 
 	m_psCloudStructure->DeinitializeForMultithreadedCalculation();
 	m_psCloudStructure->SetPointsAdditionalDataLayerCoord(m_iID, m_iPointStart, m_iPointsCount, v_iLayer, m_rGroupNumber);
@@ -237,8 +367,85 @@ void mmClouds::cmFindStudents::segmentateCloudOfPoints()
 	m_psCloudStructure->UnlockAllDataFromWrite();
 }
 
+void mmClouds::cmFindStudents::mergeSegments()
+{
+	std::vector<mmClouds::mmCloudsOfPointsStructureI::sPointID> v_vNeighbourPoints; //wektor zawierajacy ID punktow z sasiedztwa
+	mmInt v_iPointsInNeighbourhood = 0; //ilosc punktow w sasiedztwie
+
+	std::map < int, int >  v_iiGroupChangeLookup;
+
+	for (mmInt i = m_iPointsCount-1; i >=0; i--)
+	{
+		if (m_rGroupNumber[i] != 0)
+		{
+			if (v_iiGroupChangeLookup.find(static_cast<int>(m_rGroupNumber[i])) != v_iiGroupChangeLookup.end())	//jesli juz byla podmiana tej grupy
+				m_rGroupNumber[i] = v_iiGroupChangeLookup.find(static_cast<int>(m_rGroupNumber[i]))->second;
+
+			m_psCloudStructure->GetPointsInRadius(m_rGlobalXYZ[3 * i], m_rGlobalXYZ[3 * i + 1], m_rGlobalXYZ[3 * i + 2], m_rSegmentationRadius, &v_vNeighbourPoints, &v_iPointsInNeighbourhood, m_iID);
+			for (mmInt j = 0; j < v_iPointsInNeighbourhood; j++)
+			{
+				if (m_rGroupNumber[v_vNeighbourPoints[j].iPointID] != m_rGroupNumber[i] && m_rGroupNumber[v_vNeighbourPoints[j].iPointID] != 0)	//jesli sasiad innego segmentu przypisujemy obecny
+				{
+					if (v_iiGroupChangeLookup.find(static_cast<int>(m_rGroupNumber[i])) == v_iiGroupChangeLookup.end())	//zapamietujemy podmiane
+					{
+						v_iiGroupChangeLookup.insert(std::make_pair(static_cast<int>(m_rGroupNumber[v_vNeighbourPoints[j].iPointID]), m_rGroupNumber[i]));
+					}
+					m_rGroupNumber[v_vNeighbourPoints[j].iPointID] = m_rGroupNumber[i];
+
+				}
+			}
+		} else 
+		{
+			if (v_iiGroupChangeLookup.find(static_cast<int>(m_rGroupNumber[i])) != v_iiGroupChangeLookup.end())	//jesli juz byla podmiana tej grupy
+				m_rGroupNumber[i] = v_iiGroupChangeLookup.find(static_cast<int>(m_rGroupNumber[i]))->second;
+
+			m_psCloudStructure->GetPointsInRadius(m_rGlobalXYZ[3 * i], m_rGlobalXYZ[3 * i + 1], m_rGlobalXYZ[3 * i + 2], m_rSegmentationRadius/2, &v_vNeighbourPoints, &v_iPointsInNeighbourhood, m_iID);
+			for (mmInt j = 0; j < v_iPointsInNeighbourhood; j++)
+			{
+				if (m_rGroupNumber[v_vNeighbourPoints[j].iPointID] != m_rGroupNumber[i] && m_rGroupNumber[v_vNeighbourPoints[j].iPointID] != 0)	//jesli sasiad innego segmentu przypisujemy obecny
+				{
+					if (v_iiGroupChangeLookup.find(static_cast<int>(m_rGroupNumber[i])) == v_iiGroupChangeLookup.end())	//zapamietujemy podmiane
+					{
+						v_iiGroupChangeLookup.insert(std::make_pair(static_cast<int>(m_rGroupNumber[v_vNeighbourPoints[j].iPointID]), m_rGroupNumber[i]));
+					}
+					m_rGroupNumber[v_vNeighbourPoints[j].iPointID] = m_rGroupNumber[i];
+
+				}
+			}
+		}
+		m_rProgress = (100.0 * (m_iPointsCount + 4 * i) / (5 * m_iPointsCount));
+	}
+
+	int v_igroupCount = 1;
+
+	v_iiGroupChangeLookup.clear();
+
+
+	for (mmInt i = 0; i < m_iPointsCount; i++)	//minimalizes segments number
+	{
+		if (m_rGroupNumber[i] != 0 && v_iiGroupChangeLookup.find(static_cast<int>(m_rGroupNumber[i])) == v_iiGroupChangeLookup.end())
+		{
+
+			v_iiGroupChangeLookup.insert(std::make_pair(static_cast<int>(m_rGroupNumber[i]), v_igroupCount));
+			v_igroupCount++;
+		}
+	}
+	for (mmInt i = 0; i < m_iPointsCount; i++)	//set new segments to the points
+	{
+		if (v_iiGroupChangeLookup.find(static_cast<int>(m_rGroupNumber[i])) != v_iiGroupChangeLookup.end())
+		{
+			m_rGroupNumber[i] = (v_iiGroupChangeLookup.find(static_cast<int>(m_rGroupNumber[i])))->second;
+		}
+	}
+
+
+
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////
-/// TODO
+/// humans detection by faces hsv
+/// finds points with hsv within specified range and marks whole group as human
 ////////////////////////////////////////////////////////////////////////////////
 void mmClouds::cmFindStudents::detectFacesByHSV()
 {
@@ -261,9 +468,9 @@ void mmClouds::cmFindStudents::detectFacesByHSV()
 
 			RGBtoHSV(v_R, v_G, v_B, h, s, v);
 
-			if (5 < *h && *h < 40 &&
-				0.5< *v &&
-				0.2 <*s && *s <0.8)
+			if (25 < *h && *h < 70 &&
+				0.4< *v && *v < 0.8 &&
+				0.1 <*s && *s <0.4)
 			{
 				m_rGroupsMarkedAsHuman[static_cast<int>(m_rGroupNumber[i])] = 1;
 				humansFound++;
@@ -288,8 +495,78 @@ void mmClouds::cmFindStudents::detectFacesByHSV()
 	m_psCloudStructure->UnlockAllDataFromWrite();
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
-/// TODO
+/// human detection by geometry
+/// finds places with irregular geometry and marks whole group as human
+////////////////////////////////////////////////////////////////////////////////
+void mmClouds::cmFindStudents::detectHumansByGeometry()
+{
+	m_psCloudStructure->LockAllDataForRead(); //lock
+	m_rGroupsMarkedAsHuman = new mmReal[m_igroupNumber + 1];
+
+	mmReal error =  mmReal(0.0);
+	mmReal minError =  mmReal(10000.0);
+	mmReal maxError =  mmReal(-10.0);
+
+	std::vector<mmClouds::mmCloudsOfPointsStructureI::sPointID> v_vNeighbourPoints; //vector containing points' ID from neighbourhood
+	mmInt v_iPointsInNeighbourhood = 0; //number of points in neighbourhood
+
+	for (mmInt i = 0; i < m_iPointsCount; i++)
+	{
+		do
+		{
+			m_psCloudStructure->GetPointsInRadius(m_rGlobalXYZ[3 * i], m_rGlobalXYZ[3 * i + 1], m_rGlobalXYZ[3 * i + 2], m_rPlaneDeletionRadius, &v_vNeighbourPoints, &v_iPointsInNeighbourhood, m_iID);
+
+			if (5 < v_iPointsInNeighbourhood && v_iPointsInNeighbourhood < 25)
+			{
+				std::vector<mmMath::sPoint3D> v_prGlobalXYZPointsInRadius2;
+				for (mmInt j = 0; j < v_iPointsInNeighbourhood; j++)
+				{
+					mmMath::sPoint3D tempPoint3D;
+					tempPoint3D.rX = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID)];
+					tempPoint3D.rY = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID) + 1];
+					tempPoint3D.rZ = m_rGlobalXYZ[3 * ((v_vNeighbourPoints[j]).iPointID) + 2];
+					v_prGlobalXYZPointsInRadius2.push_back(tempPoint3D);
+				}
+
+				mmMath::sPlane3D sp_AproxPlane = mmMath::CalcBestPlane3D(v_prGlobalXYZPointsInRadius2, &error);
+
+				if (error>4 && error<5) //if plane is fitted well enough mark point as a part of plane
+				{
+					m_rGroupsMarkedAsHuman[static_cast<int>(m_rGroupNumber[i])] = 1;
+				}
+				if (error < minError)
+					minError = error;
+				if (error > maxError)
+					maxError = error;
+			}
+			else if (v_iPointsInNeighbourhood < 5) //optimize radius for reliable plane calculation
+				m_rPlaneDeletionRadius = 1.25 * m_rPlaneDeletionRadius;
+			else if (v_iPointsInNeighbourhood > 25) //optimize radius for reliable plane calculation
+				m_rPlaneDeletionRadius = 0.75 * m_rPlaneDeletionRadius;
+		} while (v_iPointsInNeighbourhood < 5 || v_iPointsInNeighbourhood > 25);
+
+		m_rProgress = (100.0 * i / (5 * m_iPointsCount)); //it's just a part of algorithm
+	}
+
+
+	for (mmInt i = 0; i < m_iPointsCount; i++)
+	{
+		if (m_rGroupsMarkedAsHuman[static_cast<int>(m_rGroupNumber[i])] == 1 && m_rGroupNumber[i]!=0)
+		{
+			if (!(m_iPointsState[i] & mmClouds::mmCloudsOfPointsStructureI::mmCoP_selected))
+				m_iPointsState[i] += mmClouds::mmCloudsOfPointsStructureI::mmCoP_selected;
+		}
+
+	}
+
+	m_psCloudStructure->UnlockAllDataFromRead(); //unlock
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+/// save cloud of points
 ////////////////////////////////////////////////////////////////////////////////
 void mmClouds::cmFindStudents::saveCloudOfPoints()
 {
@@ -300,7 +577,7 @@ void mmClouds::cmFindStudents::saveCloudOfPoints()
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-/// TODO
+/// saves results to file
 ////////////////////////////////////////////////////////////////////////////////
 void mmClouds::cmFindStudents::saveResultsToFile()
 {
@@ -311,7 +588,9 @@ void mmClouds::cmFindStudents::saveResultsToFile()
 
 
 
-
+////////////////////////////////////////////////////////////////////////////////
+/// calculates HSV from RGB values
+////////////////////////////////////////////////////////////////////////////////
 void mmClouds::cmFindStudents::RGBtoHSV(mmReal r, mmReal g, mmReal b, mmReal *h, mmReal *s, mmReal *v)
 {
 	mmReal minimum, maximum, delta;

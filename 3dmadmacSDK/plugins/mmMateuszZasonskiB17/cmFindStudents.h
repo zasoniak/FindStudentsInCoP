@@ -19,8 +19,8 @@ namespace mmClouds {
 		mmReal m_rSegmentationRadius = 25.0;
 		mmReal m_rScale;
 		mmString m_sCloudName;
-		mmReal m_rPlaneDeletionRadius = 10.0;
-		mmReal m_rPlaneDeletionMaxError = 1;
+		mmReal m_rPlaneDeletionRadius = 50.0;
+		mmReal m_rPlaneDeletionMaxError = 0.3;
 	private: 
 		void mmCalcMethod::Calculate();	//entry point for calculation
 
@@ -44,13 +44,18 @@ namespace mmClouds {
 		void clearCloudOfPointsFromLargeSurfaces();	//marks large surfaces (like tables, walls) as deleted
 		bool *m_bPlanesDetecion;	// flag if a point is a part of a plane
 
+		void clearCloudOfPointsFromSurfaceEdges();
+
 		void segmentateCloudOfPoints();	//group points using Hausdorf distance
 		mmReal *m_rGroupNumber;
 		mmInt m_igroupNumber;
 		mmInt *m_iGroupMembersCount;
+		void mergeSegments();
 
 		void detectFacesByHSV();	//coarse people detection using HSV values to detect faces
 		mmReal *m_rGroupsMarkedAsHuman;
+
+		void detectHumansByGeometry();	//people detection by find most complicated geometry
 
 		void saveCloudOfPoints();	//saving cloud of points
 

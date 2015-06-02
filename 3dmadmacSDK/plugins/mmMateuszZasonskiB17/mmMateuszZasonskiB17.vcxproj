@@ -163,10 +163,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="cmCheckHSV.cpp" />
     <ClCompile Include="cmFindStudents.cpp" />
     <ClCompile Include="mmMateuszZasonskiB17.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="cmCheckHSV.h" />
     <ClInclude Include="cmFindStudents.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
